@@ -49,7 +49,7 @@ def kinetic_ass(plan: dict, dest: Path) -> dict:
     size = int(st.get("size_px", 92 if H > W else 64))
     outline = int(st.get("outline_px", 8))
     margin_v = int(H * (1 - float(st.get("position_y", 0.68))))
-    head = ["[Script Info]", "ScriptType: v4.00+", f"PlayResX: {W}", f"PlayResY: {H}", "WrapStyle: 2",
+    head = ["[Script Info]", "ScriptType: v4.00+", f"PlayResX: {W}", f"PlayResY: {H}", "WrapStyle: 0",
             "ScaledBorderAndShadow: yes", "", "[V4+ Styles]",
             "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, "
             "Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, "

@@ -1,0 +1,2 @@
+{"name": "shiftws-premiere-bridge-pin", "private": true, "description": "Pinned test install of the candidate Premiere bridge. On the Mac an existing working bridge is preferred.",
+ "dependencies": {"adobe-premiere-pro-mcp": "1.2.8"}}

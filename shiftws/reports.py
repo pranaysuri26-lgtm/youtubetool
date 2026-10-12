@@ -235,9 +235,24 @@ def _index_sections(ws, rid, project_id, thread_id, sections):
                  locator={"report_id": rid, "section": i, "asset_id": s.get("asset_id"), "t": s.get("start")})
 
 
+def refresh_if_inspected(ws, project_id: str) -> list[dict]:
+    """New frame inspections since a report was written → write the next revision from the DB (no media work)."""
+    out = []
+    for r in ws.db.all("SELECT * FROM reports WHERE project_id=? AND status='current' AND kind='analysis'", (project_id,)):
+        ids = list(json.loads(r["source_hashes_json"]))
+        newer = ws.db.one("SELECT COUNT(*) n FROM coverage_records WHERE asset_id IN (%s) AND reviewed_at > ?"
+                          % ",".join("?" * len(ids)), ids + [r["created_at"]])["n"] if ids else 0
+        if newer:
+            st = json.loads(r["settings_json"])
+            out.append(write_report(ws, project_id, ids, st.get("mode", "standard"), st.get("why"), r["thread_id"],
+                                    kind="analysis", parent=r["id"]))
+    return out
+
+
 def report_sections(ws, project_id: str, query: str | None = None, report_id: str | None = None, limit: int = 8) -> list[dict]:
     """Retrieve only the relevant sections of the current report(s) for a chat turn."""
     reconcile_external_edits(ws, project_id)
+    refresh_if_inspected(ws, project_id)
     if query:
         hits = ws.search(query, scope="project", project_id=project_id, kinds=["report"], limit=limit)
         out = []

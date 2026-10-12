@@ -257,8 +257,11 @@ def project_context(ws, pid: str) -> dict:
                      "ORDER BY version DESC LIMIT 1", (pid,))
     exp = ws.db.one("SELECT id, kind, path, status FROM exports WHERE project_id=? ORDER BY created_at DESC LIMIT 1",
                     (pid,))
-    jobs = ws.db.all("SELECT id, kind, status, progress, message, error FROM jobs WHERE project_id=? AND "
-                     "status IN ('queued','running','failed') ORDER BY created_at DESC LIMIT 10", (pid,))
+    # failed jobs stop being blockers once a later job of the same kind succeeded
+    jobs = ws.db.all("SELECT id, kind, status, progress, message, error FROM jobs j WHERE project_id=? AND "
+                     "(status IN ('queued','running') OR (status='failed' AND NOT EXISTS (SELECT 1 FROM jobs k WHERE "
+                     "k.project_id=j.project_id AND k.kind=j.kind AND k.status='done' AND k.created_at > j.created_at))) "
+                     "ORDER BY created_at DESC LIMIT 10", (pid,))
     decisions = ws.memories(project_id=pid, include_channel=False, limit=25)
     channel_mem = ws.memories(project_id=None, kinds=["preference", "technique", "decision"], limit=15)
     analyzed = {r["asset_id"] for r in ws.db.all(
@@ -334,7 +337,12 @@ def _next_action(ctx, failed) -> str:
         return "Build the edit plan."
     if not ctx["latest_export"]:
         return "Render the review preview and run QC."
-    return "Prepare the upload package."
+    if not any(t["title"].startswith("Upload in YouTube Studio") for t in ctx["open_tasks"]) and \
+            not any(d["subject"].startswith("Upload package") for d in ctx["decisions"]):
+        return "Review QC flags, then prepare the upload package."
+    if any(t["title"].startswith("Upload in YouTube Studio") for t in ctx["open_tasks"]):
+        return "Upload the package in YouTube Studio (manual), then import the Studio CSV when data arrives."
+    return "Import Studio analytics and note lessons."
 
 
 def write_manifest(ws, pid: str) -> Path:
