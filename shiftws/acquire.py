@@ -51,7 +51,9 @@ def job_download(ctx):
         a = import_file_link(ws, existing["asset_id"], pid)
         return {"asset_id": a["id"], "path": a["current_path"], "reused": True,
                 "summary": f"already downloaded: {a['title']} (no new download)"}
-    tmpl = str(dest / "%(title).80B [%(id)s].%(ext)s")
+    rng = _range(p)
+    suffix = f" [{rng.replace('.', '_')}]" if rng else ""      # ranged downloads never collide with the full file
+    tmpl = str(dest / f"%(title).80B [%(id)s]{suffix}.%(ext)s")
     cmd = ytdlp_command() + ["--newline", "--no-playlist", "--continue", "--no-overwrites", "--restrict-filenames",
                              "--write-info-json", "--write-subs", "--sub-langs", "en.*,en", "--convert-subs", "srt",
                              "--no-mtime", "--print", "after_move:SHIFTWS_FILE=%(filepath)s",

@@ -70,7 +70,7 @@ def job_apply(ctx):
     cmd = bridge_command(ws)
     if not cmd:
         raise JobFailed("Premiere bridge not installed", hint="Connections → Premiere. Only Premiere jobs are blocked.")
-    cli = BridgeClient(cmd, timeout=90)
+    cli = BridgeClient(cmd, timeout=float(ws.cfg.get("premiere.timeout", 90)))
     info = plan_operations(ws, {**row, "plan": plan})
     name = info["sequence_name"]
     root = Path(get_project(ws, pid)["root_dir"]) / "premiere"

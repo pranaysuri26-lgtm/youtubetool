@@ -1,0 +1,30 @@
+{
+  "name": "five-to-nine-shift",
+  "productName": "5 to 9 Shift",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first video production workspace (chat-led)",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p electron/tsconfig.json",
+    "build": "npm run build:renderer && npm run build:electron",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p electron/tsconfig.json"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5",
+    "@vitejs/plugin-react": "4.3.4",
+    "electron": "33.2.1",
+    "typescript": "5.7.2",
+    "vite": "6.0.6",
+    "playwright-core": "1.49.1"
+  }
+}

@@ -8,3 +8,5 @@ testmedia/
 .pytest_cache/
 *.egg-info/
 /demo-data/
+desktop/dist-electron/
+desktop/screenshots/

@@ -57,7 +57,7 @@ def import_file(ws, path: str | Path, *, project_id: str | None, role: str, copy
             "title": source_title or src.name, "extractor": extractor, "acquired_at": t,
             "requested_range": requested_range, "source_offset": source_offset,
             "metadata_json": metadata or {"original_path": str(src)}})
-        lic = license or {}
+        lic = license or _provenance_license(src, digest) or {}
         ws.db.insert("license_records", {
             "id": new_id("lic"), "asset_id": asset_id, "license": lic.get("license", "unverified"),
             "author": lic.get("author"), "source": lic.get("source"), "attribution_text": lic.get("attribution"),
@@ -181,3 +181,19 @@ def check_modified(ws, asset_id: str) -> bool:
         _mark_dependents_stale(ws, asset_id, "source file changed on disk")
         return True
     return False
+
+
+def _provenance_license(src: Path, digest: str) -> dict | None:
+    """License evidence from a provenance.json shipped alongside media (same folder or its parent), matched by hash."""
+    for d in (src.parent, src.parent.parent):
+        pj = d / "provenance.json"
+        if not pj.exists():
+            continue
+        try:
+            for e in json.loads(pj.read_text()):
+                if e.get("sha256") == digest:
+                    return {"license": e["license"], "author": e.get("author"), "source": e.get("source"),
+                            "evidence": f"{pj}", "attribution": f"\"{e.get('title')}\" by {e.get('author')} — {e['license']}"}
+        except (OSError, ValueError, KeyError):
+            continue
+    return None

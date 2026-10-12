@@ -397,7 +397,7 @@ def job_inventory(ctx):
     from PIL import Image
     def dhash(path):
         im = Image.open(path).convert("L").resize((9, 8))
-        px = list(im.getdata())
+        px = list(im.tobytes())
         return sum(1 << i for i in range(64) if px[(i // 8) * 9 + i % 8] > px[(i // 8) * 9 + i % 8 + 1])
     hashes = {}
     for aid in ids:

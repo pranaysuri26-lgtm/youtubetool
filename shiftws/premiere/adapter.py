@@ -76,7 +76,14 @@ class BridgeClient:
         t.start()
         t.join(self.timeout + 30)
         if "e" in result:
-            raise result["e"]
+            e = result["e"]
+            # the MCP client runs inside a task group: unwrap so callers can handle TimeoutError explicitly
+            if isinstance(e, BaseExceptionGroup):
+                if e.subgroup(TimeoutError) is not None:
+                    raise TimeoutError("Premiere bridge call timed out") from e
+                while isinstance(e, BaseExceptionGroup) and len(e.exceptions) == 1:
+                    e = e.exceptions[0]
+            raise e
         if "v" not in result:
             raise TimeoutError("Premiere bridge did not answer")
         return result["v"]

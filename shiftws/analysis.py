@@ -247,9 +247,11 @@ def build_scenes(ws, asset, crv_out: str, start=None, end=None, project_id=None)
         said = " ".join(x["text"] for x in ws.db.all(
             "SELECT text FROM transcript_segments WHERE asset_id=? AND end>? AND start<?",
             (asset["id"], r["t"], r["t_next"])))
-        ws.index("scene", sid, f"{asset['title']} @ {r['t']:.1f}s", f"{said} luma {r['metrics'].get('luma')}",
+        cur = ws.db.one("SELECT description, tags_json, metrics_json, frame_path FROM scenes WHERE id=?", (sid,)) or {}
+        desc = f"{cur.get('description') or ''} {' '.join(json.loads(cur.get('tags_json') or '[]'))}".strip()
+        ws.index("scene", sid, f"{asset['title']} @ {r['t']:.1f}s", f"{desc} {said} luma {r['metrics'].get('luma')}",
                  project_id=project_id, locator={"asset_id": asset["id"], "t": round(r["t"], 2),
-                                                 "end": round(r["t_next"], 2), "frame": r["frame"]})
+                                                 "end": round(r["t_next"], 2), "frame": cur.get("frame_path") or r["frame"]})
     coverage = {
         "frames": len(rows), "window": [s0, s1], "max_gap_s": round(max_gap, 2),
         "sparse": bool(max_gap > 8.0 or (len(rows) and (s1 - s0) / len(rows) > 6.0)),

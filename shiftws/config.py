@@ -44,6 +44,7 @@ DEFAULT_SETTINGS = {
         "bridge": "auto",                # auto | hetpatel_mcp | none
         "mcp_command": ["premiere-pro-mcp"],
         "telemetry": False,
+        "timeout": 90,                   # seconds per bridge call; on timeout, state is inspected before any retry
     },
     "cache_limit_gb": 50,
     "media_parallelism": 2,

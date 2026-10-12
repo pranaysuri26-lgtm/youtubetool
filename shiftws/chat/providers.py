@@ -278,7 +278,7 @@ class OfflineProvider(Provider):
     def run_turn(self, ws, thread, text, ev, cancel):
         scope = {"project_id": thread["project_id"], "thread_id": thread["id"], "origin": "chat"}
         call = lambda n, **a: T.call(ws, n, a, scope=scope)  # noqa: E731
-        s = text.strip()
+        s = text.split("\n\n[Retrieved for this turn")[0].split("\n\n[Workspace already did")[0].strip()
         low = s.lower()
         reply = None
         m = re.match(r"(?:download|get)\s+(https?://\S+)(?:\s+(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?))?", s, re.I)
