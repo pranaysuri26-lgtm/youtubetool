@@ -35,6 +35,11 @@ def ensure_channel(ws) -> str:
     voice = ws.cfg.home / "voice.md"
     if not voice.exists():
         voice.write_text(presets.VOICE_MD)
+    tdir = ws.cfg.home / "templates"
+    tdir.mkdir(exist_ok=True)
+    for name, body in presets.TEMPLATES.items():
+        if not (tdir / name).exists():
+            (tdir / name).write_text(body)
     return cid
 
 

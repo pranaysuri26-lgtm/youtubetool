@@ -130,3 +130,36 @@ Nothing below has been filled in for you on purpose: audience and style are your
 - Tags that work with my voice: (learned)
 - Tags that sound excessive or are read aloud: (learned)
 """
+
+
+# Editable channel templates (written once into <SHIFTWS_HOME>/templates; the user owns them afterwards).
+TEMPLATES = {
+    "shorts.md": """# Short template — 5 to 9 Shift
+
+- Starting target: 30 s (per-project override; never trim locked narration to hit it)
+- Structure (when it suits): hook -> question -> payoff -> escalation
+- 1080x1920, aspect-preserving crop, zero unintended bars
+- Captions: bright yellow, black outline, word by word
+- Restrained zooms; subtle SFX only when selected; music off unless requested
+- Visuals must demonstrate the point (no unrelated gameplay wallpaper)
+- [YOU: your opening style]
+""",
+    "ranking.md": """# Ranking video template
+
+- Countdown order: [YOU: ascending or descending]
+- Per entry: claim -> evidence clip -> verdict [YOU: your verdict]
+- Evidence: every ranked claim needs a footage moment or dated source
+""",
+    "bucket_list.md": """# Bucket-list template
+
+Definition: UNRESOLVED — the user's bucket-list template has not been provided yet.
+The workspace will not invent it. Paste or describe it here, or point to an existing file.
+""",
+    "long_form.md": """# Long-form template
+
+- Narrative pacing; relevant game audio kept; project-specific music (selected, not auto-placed)
+- Chapters from final timing (>= 3 chapters, first at 0:00, each >= 10 s)
+- SEO structure "5/5/4/1": UNRESOLVED until defined by the user
+- "70% formula": UNRESOLVED until defined by the user
+""",
+}

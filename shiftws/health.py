@@ -84,13 +84,15 @@ def tools() -> dict:
                        ("ollama", ("--version",)), ("claude", ("--version",)), ("brew", ("--version",))]:
         b = shutil.which(name)
         v = _version(b, args) if name != "whisper-cli" else ("installed" if b else None)
-        out[name] = {"path": b, "version": v, "ok": bool(b)}
-    import sys
-    venv = Path(sys.executable).parent
-    for name in ("yt-dlp", "crv"):
-        p = venv / name
-        if p.exists():
-            out[f"{name} (workspace venv)"] = {"path": str(p), "version": _version(str(p)), "ok": True}
+        out[name] = {"path": b, "version": v, "ok": bool(b),
+                     "optional": name in ("yt-dlp", "deno", "whisper-cli", "ollama", "brew")}
+    from importlib import metadata
+    for name, dist in (("yt-dlp (workspace venv)", "yt-dlp"), ("claude-real-video (workspace venv)", "claude-real-video"),
+                       ("sherpa-onnx (workspace venv)", "sherpa-onnx")):
+        try:
+            out[name] = {"path": None, "version": metadata.version(dist), "ok": True}
+        except metadata.PackageNotFoundError:
+            pass
     return out
 
 
@@ -257,7 +259,8 @@ def report_markdown(d: dict) -> str:
           f"- GPU: {', '.join(g for g in h.get('gpu') or [] if g) or 'not detected'} · free disk {h.get('disk_free_gb')} GB",
           f"- External drives: {', '.join(h.get('external_drives') or []) or 'none'}", "", "## Tools"]
     for k, v in d["tools"].items():
-        L.append(f"- {'✅' if v['ok'] else '❌'} {k}: {v.get('version') or 'missing'}")
+        mark = "✅" if v["ok"] else ("–" if v.get("optional") else "❌")
+        L.append(f"- {mark} {k}: {v.get('version') or ('not installed (optional)' if v.get('optional') else 'missing')}")
     cc = d["claude_code"]
     L += ["", "## Claude Code", f"- installed: {cc.get('installed')} · version: {cc.get('version')} · logged in: {cc.get('logged_in')}"]
     s = d["claude_skills"]
