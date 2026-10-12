@@ -44,7 +44,18 @@ def import_take(ws, project_id: str, path: str | Path, *, script_version_id: str
                                                    "evidence": "generated locally for testing"})
     dup = ws.db.one("SELECT * FROM narration_takes WHERE project_id=? AND asset_id=?", (project_id, a["id"]))
     if dup:
-        return get_take(ws, dup["id"]) | {"duplicate": True}
+        # Same bytes imported again: audio is unchanged, but the user may be correcting its labels.
+        fix = {}
+        if synthetic_standin and not dup["is_synthetic_standin"]:
+            fix["is_synthetic_standin"] = 1
+        if generation_settings:
+            fix["generation_settings_json"] = {**json.loads(dup["generation_settings_json"]), **generation_settings}
+        if fix:
+            ws.db.update("narration_takes", {"id": dup["id"]}, fix)
+            ws.remember(kind="fact", subject=f"Narration take {dup['take_no']} labels corrected",
+                        content=f"Metadata only (audio untouched): {', '.join(fix)}", project_id=project_id,
+                        thread_id=thread_id, ref_type="take", ref_id=dup["id"], provenance=origin)
+        return get_take(ws, dup["id"]) | {"duplicate": True, "labels_updated": sorted(fix)}
     n = ws.db.one("SELECT COALESCE(MAX(take_no),0)+1 n FROM narration_takes WHERE project_id=?", (project_id,))["n"]
     tid = new_id("take")
     ws.db.insert("narration_takes", {

@@ -50,7 +50,9 @@ def handle_attachments(ws, thread: dict, paths: list[str], text: str = "") -> li
     for p in paths:
         k = kind_for(p)
         if k == "audio" and waiting_vo:
-            r = T.call(ws, "narration_import", {"path": p}, scope=scope)
+            import re as _re
+            standin = bool(_re.search(r"stand-?in|not elevenlabs|local tts|placeholder|espeak|\bsay\b", text or "", _re.I))
+            r = T.call(ws, "narration_import", {"path": p, "synthetic_standin": standin}, scope=scope)
             notes.append(f"Imported {Path(p).name} as narration take {r['data'].get('take_no') if r['data'] else '?'} "
                          f"(alignment job {r['job_ids']}).")
         else:
