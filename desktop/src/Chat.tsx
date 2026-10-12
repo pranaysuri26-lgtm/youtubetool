@@ -109,6 +109,9 @@ export function Chat({ threadId, projectId, tick, focusMessage }: { threadId: st
     <div className="chat" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       {resume && <div className="resume card"><div className="small muted">Where we stopped</div><div>{resume.summary}</div>
         <div><b>Next:</b> {resume.next_action}</div>
+        {resume.approved?.length ? <div className="small">✓ Approved: {resume.approved.join(" · ")}</div> : null}
+        {resume.blockers?.length ? <div className="small error">Blocked: {resume.blockers.join(" · ")}</div> : null}
+        {resume.reminders?.length ? <div className="small" style={{ color: "var(--warn)" }}>Reminder: {resume.reminders.join(" · ")}</div> : null}
         {resume.open_tasks?.length ? <div className="small muted">Open: {resume.open_tasks.map((t: any) => t.title).join(" · ")}</div> : null}</div>}
       <div className="messages">
         {msgs.map((m) => <Message key={m.id} m={m} projectId={projectId} tick={tick} />)}

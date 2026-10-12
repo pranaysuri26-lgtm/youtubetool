@@ -13,7 +13,20 @@ STAGES = ["brief", "script", "narration", "footage", "audio", "edit_plan", "prem
           "upload", "results"]
 
 
+def _ensure_files(ws) -> None:
+    """voice.md and channel templates: created if missing, never overwritten (the user owns them)."""
+    voice = ws.cfg.home / "voice.md"
+    if not voice.exists():
+        voice.write_text(presets.VOICE_MD)
+    tdir = ws.cfg.home / "templates"
+    tdir.mkdir(exist_ok=True)
+    for name, body in presets.TEMPLATES.items():
+        if not (tdir / name).exists():
+            (tdir / name).write_text(body)
+
+
 def ensure_channel(ws) -> str:
+    _ensure_files(ws)
     row = ws.db.one("SELECT id FROM channel_profile LIMIT 1")
     if row:
         return row["id"]
@@ -32,14 +45,6 @@ def ensure_channel(ws) -> str:
                                            "updated_at": t})
         ws.db.insert("threads", {"id": "th_channel", "project_id": None, "kind": "channel",
                                  "title": "Channel workspace", "created_at": t, "updated_at": t})
-    voice = ws.cfg.home / "voice.md"
-    if not voice.exists():
-        voice.write_text(presets.VOICE_MD)
-    tdir = ws.cfg.home / "templates"
-    tdir.mkdir(exist_ok=True)
-    for name, body in presets.TEMPLATES.items():
-        if not (tdir / name).exists():
-            (tdir / name).write_text(body)
     return cid
 
 

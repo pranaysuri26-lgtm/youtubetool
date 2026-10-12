@@ -14,7 +14,27 @@ from .threads import add_message, get_thread
 _TURNS: dict[str, threading.Event] = {}
 
 
-def handle_attachments(ws, thread: dict, paths: list[str]) -> list[str]:
+def time_window(text: str) -> tuple[float | None, float | None]:
+    """'first 60 seconds' / 'first 2 minutes' / 'from 1:20 to 2:05' / 'between 30s and 90s' → (start, end)."""
+    import re as _re
+    t = (text or "").lower()
+
+    def secs(v: str) -> float:
+        if ":" in v:
+            parts = [float(x) for x in v.split(":")]
+            return sum(x * 60 ** i for i, x in enumerate(reversed(parts)))
+        return float(v)
+    m = _re.search(r"first\s+(\d+(?:\.\d+)?)\s*(s|sec|secs|seconds|m|min|mins|minutes)\b", t)
+    if m:
+        v = float(m.group(1)) * (60 if m.group(2).startswith("m") else 1)
+        return 0.0, v
+    m = _re.search(r"(?:from|between)\s+(\d+(?::\d+){0,2}|\d+(?:\.\d+)?)\s*s?\s+(?:to|and|-)\s+(\d+(?::\d+){0,2}|\d+(?:\.\d+)?)\s*s?\b", t)
+    if m:
+        return secs(m.group(1)), secs(m.group(2))
+    return None, None
+
+
+def handle_attachments(ws, thread: dict, paths: list[str], text: str = "") -> list[str]:
     """Dropped files: narration audio for a narrated project waiting on VO → narration import; everything else →
     media import. Returns short notes that are added to the turn so the AI knows what happened."""
     from .. import tools as T
@@ -40,8 +60,10 @@ def handle_attachments(ws, thread: dict, paths: list[str]) -> list[str]:
     if footage:
         from ..projects import pref
         mode = pref(ws, pid, "analysis_mode", "standard")
-        r = T.call(ws, "analysis_report", {"paths": footage, "mode": mode}, scope=scope)
-        notes.append(f"Registered {len(footage)} gameplay source(s) and started a {mode} analysis report "
+        start, end = time_window(text)
+        r = T.call(ws, "analysis_report", {"paths": footage, "mode": mode, "start": start, "end": end}, scope=scope)
+        win = f" for {start:g}–{end:g}s" if end else ""
+        notes.append(f"Registered {len(footage)} gameplay source(s) and started a {mode} analysis report{win} "
                      f"(job {r['job_ids']}); the report will be linked to this chat.")
     if other:
         r = T.call(ws, "assets_import", {"paths": other}, scope=scope)
@@ -56,7 +78,7 @@ def send(ws, thread_id: str, text: str, *, attachments: list[str] | None = None,
     for a in attachments or []:
         ws.db.insert("attachments", {"id": new_id("att"), "message_id": msg["id"], "path": a,
                                      "handled_as": "folder" if Path(a).is_dir() else "media_import", "created_at": now()})
-    notes = handle_attachments(ws, thread, attachments) if attachments else []
+    notes = handle_attachments(ws, thread, attachments, text) if attachments else []
     for n in notes:
         add_message(ws, thread_id, "system", n)
     turn_id = new_id("turn")
@@ -193,8 +215,15 @@ def resume_summary(ws, thread_id: str) -> dict:
         ctx = project_context(ws, t["project_id"])
         w = ctx["where_we_stopped"]
         running = [j for j in ctx["active_jobs"] if j["status"] in ("queued", "running")]
+        approved = [d["subject"] for d in ctx["decisions"] if d["kind"] == "approval"][:5]
+        blockers = [f"{j['kind']}: {j['error']}" for j in ctx["active_jobs"] if j["status"] == "failed"]
+        offline = [a["title"] for a in ctx["assets"] if a["availability"] != "online"]
+        if offline:
+            blockers.append(f"offline media (relink to continue media jobs): {', '.join(offline[:3])}")
+        from ..commitments import check_commitments
+        reminders = [f"{r['kind']} (from {r['date']}: {r['subject']})" for r in check_commitments(ws, t["project_id"])]
         return {"summary": w["summary"], "next_action": w["next_action"], "open_tasks": ctx["open_tasks"],
-                "running_jobs": running}
+                "running_jobs": running, "approved": approved, "blockers": blockers, "reminders": reminders}
     n = ws.db.one("SELECT COUNT(*) n FROM projects WHERE status='active'")["n"]
     recent = ws.db.all("SELECT title, stage FROM projects WHERE status='active' ORDER BY updated_at DESC LIMIT 3")
     return {"summary": f"{n} active project(s). Recent: " + "; ".join(f"{r['title']} ({r['stage']})" for r in recent),
