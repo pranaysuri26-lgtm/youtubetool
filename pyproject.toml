@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shiftws"
+version = "0.1.0"
+description = "5 to 9 Shift — local-first video production workspace engine"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "mcp>=1.2",
+  "numpy>=1.26",
+  "Pillow>=10",
+  "yt-dlp==2026.8.19",
+  "claude-real-video==0.10.7",
+]
+
+[project.optional-dependencies]
+sherpa = ["sherpa-onnx==1.13.8"]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[project.scripts]
+shiftws = "shiftws.cli:main"
+shiftws-mcp = "shiftws.mcp_server:main"
+
+[tool.setuptools.packages.find]
+include = ["shiftws*"]
+
+[tool.setuptools.package-data]
+shiftws = ["migrations/*.sql", "templates/*"]

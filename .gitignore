@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+desktop/dist/
+desktop/out/
+testmedia/
+.pytest_cache/
+*.egg-info/
+/demo-data/
