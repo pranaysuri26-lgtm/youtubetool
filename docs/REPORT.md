@@ -163,6 +163,26 @@ See `docs/demo/acceptance_run.md`: the real Claude Code CLI, the engine API, rea
 - **Premiere export:** the job waits for a complete file, probes it, registers it under the right deliverable,
   QCs it and never overwrites. This is shown with the clearly labeled **stub** bridge, as a logic test only.
 
+## Live acceptance script — validated here, final run on the Mac
+`scripts/mac_live_acceptance.py` ran in this container with the real Claude Code CLI
+(`docs/demo/live_acceptance_linux_validation.md`).
+
+| Step | Result |
+|---|---|
+| Gameplay → linked report in the chat | passed |
+| Same-chat planning: 13 frames inspected, tagged script approved, no re-upload | passed |
+| Narration: stand-in label kept, 98.5% word match, locked | passed |
+| Approved hook SFX recorded | passed |
+| Valid edit plan containing that SFX | passed |
+| Premiere edit and verified export | **BLOCKED** (no Premiere in this container; not counted as passed) |
+
+On an earlier attempt, the assistant declined to lock a take whose alignment had word mismatches until the user
+had listened. That is the intended behavior. The script now answers that question as an explicit, logged user
+decision; `--no-confirm-lock` makes it stop and wait for you instead.
+
+Test totals: 43 passed (24 acceptance, 13 regression, 5 unit, 1 download); the opt-in real-provider test passed
+separately.
+
 ## Known limitations
 - **Premiere editing and export:** not yet run against real Premiere (pending Mac checks #0, #3–6). The FCP7 XML
   scale and audio-level interpretation must be confirmed by readback. `premiere_export` is verified only against
