@@ -31,7 +31,15 @@ config. It prints any proposed change instead. If whisper.cpp is already install
 `~/Library/Application Support/5to9Shift/settings.json`. Otherwise run `scripts/setup.sh --models` to get the
 CPU model that was tested here.
 
-Premiere (run on the Mac with a project named `*disposable*` open and the bridge panel running):
+Live acceptance of the whole journey (gameplay → linked report → planning in the same chat → approved audio →
+Premiere edit → verified export). Steps that need Premiere are reported BLOCKED if it isn't connected:
+
+```bash
+.venv/bin/python scripts/mac_live_acceptance.py --gameplay "/Volumes/Rec/session.mp4" --sfx-folder ~/Music/SFX \
+    --export-preset ~/path/to/YouTube.epr [--narration ~/Downloads/elevenlabs.mp3]
+```
+
+Premiere tool-level test (run on the Mac with a project named `*disposable*` open and the bridge panel running):
 
 ```bash
 .venv/bin/python scripts/premiere_disposable_test.py --footage ~/Movies/clip.mp4 --export-preset /path/to/preset.epr
@@ -72,7 +80,7 @@ docs/               REPORT.md (phase demos + limitations), PENDING_MAC_CHECKS.md
 
 ```bash
 scripts/make_test_media.sh /root/shiftws-testmedia     # Linux: licensed test media with provenance
-.venv/bin/pytest -q tests/                              # 24 acceptance tests + yt-dlp download test
+.venv/bin/pytest -q tests/                              # acceptance + regression + unit tests, yt-dlp download test
 SHIFTWS_TEST_CLAUDE=1 .venv/bin/pytest -q tests/test_claude_provider.py   # uses your Claude Code login
 cd desktop && OUT=shots node test/smoke.mjs             # headless Electron UI smoke test (needs a display/Xvfb)
 ```

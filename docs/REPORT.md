@@ -127,11 +127,46 @@ See `docs/AI_CONNECTION.md` for the authentication boundary.
 - **Desktop:** Electron + React chat-first UI, smoke-tested headless with screenshots (`docs/demo/screenshots/`).
 
 ## Acceptance sequence (real AI provider)
-See `docs/demo/acceptance_run.md`.
+See `docs/demo/acceptance_run.md`: the real Claude Code CLI, the engine API, real media.
+
+| Step | Result |
+|---|---|
+| 1. Project created through chat | Worked (preset 30 s Shorts target applied). |
+| 2. Gameplay granted in chat → linked report | Worked. Claude waited on the job, viewed 17 frames, described 14 with confidence, and noted the 9 s sampling gaps. |
+| 3. Tagged script approved | Worked. It flagged that health numbers came from low-resolution frames, used no invented verdict, and noted the voice/model weren't confirmed. |
+| 4. Approve / reject | Approval of `fd_device-added` for "hook impact" recorded with reasons. |
+| 5–6. Close and reopen | Resumed from structured state. Claude then ran a dense frame check before keeping the "sixties" line, fixed shot placement, and rendered + QC'd the preview. |
+| 7. Search across projects | The approved impact was found from a second project, with license provenance; it was not copied into the second project. |
+| 8. Targeted revision | **Not completed in that run:** the CLI hit its plan's usage limit. Covered by `test_replace_song_preserves_vo_and_analysis`; to be re-shown in the Mac live run. |
+
+**Defects the run found, now fixed with regression tests:**
+- A dropped stand-in take wasn't flagged, and a re-import couldn't relabel it. Claude correctly refused to lock it
+  until asked.
+- Captions used speech-recognition spellings ("Freedom's", "then", "90s") instead of the approved script words.
+- Audio routing only recognized narration while the VO task was open.
+
+## Regression round (after the acceptance run)
+`tests/test_regressions.py` (13 tests, real media):
+- **Audio routing:**
+  - stand-in wording is honored;
+  - a re-import corrects labels only;
+  - a replacement take never replaces the locked one;
+  - SFX and songs go to the catalog as suggestion-only;
+  - ambiguous files trigger one question;
+  - no-commentary deliverables never get narration.
+- **Skills:** the six real yt-* utilities run on project data and are saved as chat-linked, searchable artifacts.
+  yt-edit output is stored as suggestions only.
+- **Research:** sources are validated (date, category, public/private).
+- **Captions:** they use the approved script's words, with a `caption_fix` op.
+- **Deliverables:** two deliverables stay separate through plan get/validate, render, QC selection, packages,
+  Premiere sequence naming and recorded sequence, and per-deliverable status.
+- **Premiere export:** the job waits for a complete file, probes it, registers it under the right deliverable,
+  QCs it and never overwrites. This is shown with the clearly labeled **stub** bridge, as a logic test only.
 
 ## Known limitations
-- **Premiere editing and export:** not yet run against real Premiere (pending Mac checks #3–6). The FCP7 XML scale
-  and audio-level interpretation must be confirmed by readback.
+- **Premiere editing and export:** not yet run against real Premiere (pending Mac checks #0, #3–6). The FCP7 XML
+  scale and audio-level interpretation must be confirmed by readback. `premiere_export` is verified only against
+  the stub bridge.
 - **ElevenLabs:** no real take tested. Tag behavior with your voice is still unknown and will be learned through
   tag feedback. The character limit is provisional until you confirm the model.
 - **yt-dlp site extractors:** YouTube etc. untested here (blocked sites). The generic extractor was tested with a
@@ -141,8 +176,8 @@ See `docs/demo/acceptance_run.md`.
 - **Scene understanding:** comes only from a vision model actually looking at frames. Metrics (luma, bars) are not
   descriptions.
 - **Audio classification:** heuristic (duration, crest factor, band energy). Treat its labels as hints.
-- **Attachment auto-analysis:** ignores time hints in your message ("first 60 s"); the AI may then run a second,
-  windowed pass.
+- **Attachment auto-analysis:** understands simple time hints ("first 60 seconds", "from 1:20 to 2:05"); anything
+  more complex falls back to the full file.
 - **Packaging/signing:** the Electron app runs from source (`npm --prefix desktop start`); it isn't packaged as a
   signed .app yet.
 - **Not built:** optional integrations vidIQ, OpusClip, and browser-assisted Studio filling.

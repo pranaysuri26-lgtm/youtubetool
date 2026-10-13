@@ -6,6 +6,7 @@ Send me the files these commands produce.
 
 | # | Check | How | What counts as passing |
 |---|---|---|---|
+| 0 | **Primary journey, live** — gameplay → linked report → same-chat planning → approved audio → Premiere edit → verified export | `.venv/bin/python scripts/mac_live_acceptance.py --gameplay "<file>" --sfx-folder "<folder>" --export-preset "<preset.epr>" [--narration <ElevenLabs download>]` with a `*disposable*` Premiere project open, then send `docs/local/mac_live_acceptance.md` | Every step reads `[PASSED]`. Steps that depend on Premiere read `[BLOCKED]` (never "passed") if Premiere isn't connected. A step passes only on a state check (report card in the chat, frames described, take locked, approval recorded, readback matches, exported file probed + QC). |
 | 1 | Discovery of your real setup (tools, skills, MCP server names, Premiere version, chip/RAM/GPU, drives) | `scripts/setup.sh`, then send `docs/local/discovery.md` + `docs/local/health.md` | Names and versions only, secrets redacted. Any existing Premiere bridge is detected and preserved. |
 | 2 | Packaged desktop app launch, file permissions, drag-drop paths with spaces, external drives | `npm --prefix desktop start`; grant a folder on an external drive from a chat | The analysis report card appears in that chat; offline drives show as offline, not removed. |
 | 3 | Premiere bridge identity and connection | Connections → Check Premiere, or `shiftws tool premiere_status` | Server, host, panel and export statuses all report correctly. |
