@@ -53,14 +53,26 @@ def job_package(ctx):
     ws, p = ctx.ws, ctx.params
     pid = ctx.job["project_id"]
     proj = get_project(ws, pid)
-    e = ws.db.one("SELECT * FROM exports WHERE project_id=? AND status IN ('qc_passed','qc_flagged') ORDER BY "
-                  "(kind!='preview') DESC, created_at DESC LIMIT 1", (pid,))
+    dlv = p.get("deliverable_id")
+    if p.get("export_id"):
+        e = ws.db.one("SELECT * FROM exports WHERE id=? AND project_id=?", (p["export_id"], pid))
+    else:
+        e = ws.db.one("SELECT * FROM exports WHERE project_id=? AND (? IS NULL OR deliverable_id=?) AND status IN "
+                      "('qc_passed','qc_flagged') ORDER BY (kind!='preview') DESC, created_at DESC LIMIT 1",
+                      (pid, dlv, dlv))
     if not e:
-        raise JobFailed("no QC-checked export yet", hint="Render and run QC first.")
+        raise JobFailed("no QC-checked export yet" + (f" for deliverable {dlv}" if dlv else ""),
+                        hint="Render and run QC first.")
+    if e["status"] not in ("qc_passed", "qc_flagged"):
+        raise JobFailed(f"export {e['id']} has not passed QC ({e['status']})", hint="Run qc_run on it first.")
     plan = json.loads(ws.db.one("SELECT plan_json FROM edit_plan_versions WHERE id=?", (e["plan_version_id"],))["plan_json"])
     script = get_script(ws, plan.get("script_id")) if plan.get("script_id") else None
-    rev = (ws.db.one("SELECT COUNT(*) n FROM artifacts WHERE project_id=? AND kind='upload_package'", (pid,))["n"] or 0) + 1
-    d = Path(proj["root_dir"]) / "upload-package" / f"rev{rev:02d}"
+    if script and plan.get("deliverable_id") and script.get("deliverable_id") not in (None, plan["deliverable_id"]):
+        script = None   # never package another deliverable's script
+    dl_row = ws.db.one("SELECT * FROM deliverables WHERE id=?", (e["deliverable_id"],)) if e["deliverable_id"] else None
+    sub = re.sub(r"[^a-z0-9]+", "-", (dl_row["title"] if dl_row else "main").lower()).strip("-")[:40] or "main"
+    rev = len(list((Path(proj["root_dir"]) / "upload-package" / sub).glob("rev*"))) + 1
+    d = Path(proj["root_dir"]) / "upload-package" / sub / f"rev{rev:02d}"
     d.mkdir(parents=True, exist_ok=True)
     video = d / Path(e["path"]).name
     try:
@@ -117,7 +129,8 @@ def job_package(ctx):
                  "- [ ] Audience / made-for-kids / visibility — your choice (not automated)",
                  "- [ ] Publish yourself. This workspace never publishes."]
     (d / "checklist.md").write_text("\n".join(checklist) + "\n")
-    meta = {"package_rev": rev, "export_id": e["id"], "plan_version_id": e["plan_version_id"], "video": str(video),
+    meta = {"package_rev": rev, "export_id": e["id"], "deliverable_id": e["deliverable_id"],
+            "deliverable": dl_row["title"] if dl_row else None, "plan_version_id": e["plan_version_id"], "video": str(video),
             "title": title, "title_lint": lint, "chapters": chapters, "credits": credits,
             "license_unverified": unverified, "qc_status": qc.get("status"), "studio_url": STUDIO_URL, "created_at": now()}
     (d / "package.json").write_text(json.dumps(meta, indent=2, default=str))

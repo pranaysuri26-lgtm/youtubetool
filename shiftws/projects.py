@@ -196,6 +196,23 @@ def list_deliverables(ws, project_id: str) -> list[dict]:
     return ws.db.all("SELECT * FROM deliverables WHERE project_id=? AND status='active' ORDER BY created_at", (project_id,))
 
 
+def deliverable_status(ws, d: dict) -> dict:
+    """Per-deliverable state so a Short and a long cut never get mixed up."""
+    one = lambda sql: ws.db.one(sql, (d["id"],))  # noqa: E731
+    return {**d,
+            "script": one("SELECT id, version, status FROM script_versions WHERE deliverable_id=? ORDER BY version DESC LIMIT 1"),
+            # the take the edit uses (locked) first; newer unlocked takes are listed separately for review
+            "narration": one("SELECT id, take_no, status, is_synthetic_standin FROM narration_takes WHERE deliverable_id=? "
+                             "AND status!='replaced' ORDER BY (status='locked') DESC, created_at DESC LIMIT 1"),
+            "takes_awaiting_review": [r["take_no"] for r in ws.db.all(
+                "SELECT take_no FROM narration_takes WHERE deliverable_id=? AND status IN ('imported','aligned') "
+                "ORDER BY take_no", (d["id"],))],
+            "plan": one("SELECT id, version, status FROM edit_plan_versions WHERE deliverable_id=? ORDER BY version DESC LIMIT 1"),
+            "export": one("SELECT id, kind, status, path FROM exports WHERE deliverable_id=? ORDER BY created_at DESC LIMIT 1"),
+            "sequence": one("SELECT ref_id AS sequence_id, content FROM decisions WHERE ref_type='sequence' AND status='active' "
+                            "AND json_extract(data_json, '$.deliverable_id')=? ORDER BY created_at DESC LIMIT 1")}
+
+
 def get_deliverable(ws, deliverable_id: str | None, project_id: str) -> dict:
     if deliverable_id:
         d = ws.db.one("SELECT * FROM deliverables WHERE id=?", (deliverable_id,))
@@ -280,7 +297,7 @@ def project_context(ws, pid: str) -> dict:
     for a in assets:
         a["analyzed"] = a["id"] in analyzed
     ctx = {
-        "deliverables": list_deliverables(ws, pid),
+        "deliverables": [deliverable_status(ws, d) for d in list_deliverables(ws, pid)],
         "reports": ws.db.all("SELECT id, kind, title, revision, status, path FROM reports WHERE project_id=? AND "
                              "status!='superseded' ORDER BY created_at DESC", (pid,)),
         "project": {k: p[k] for k in ("id", "title", "stage", "format_preset", "root_dir")} | {"brief": p["brief"]},

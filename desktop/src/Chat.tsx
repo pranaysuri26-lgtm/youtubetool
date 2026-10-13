@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { api, copyText, fileUrl, openExternal, pick, tool } from "./api";
 import { Markdown } from "./Markdown";
 
-type Msg = { id: string; role: string; content: string; meta: any; created_at: string };
+type Msg = { id: string; thread_id: string; role: string; content: string; meta: any; created_at: string };
 
 export function JobCard({ jobId, tick }: { jobId: string; tick: number }) {
   const [j, setJ] = useState<any>(null);
@@ -144,6 +144,9 @@ function Message({ m, projectId, tick }: { m: Msg; projectId: string | null; tic
     {m.role === "assistant" && m.meta?.provider && <div className="small muted">{m.meta.provider === "claude_code" ? "Claude Code" : m.meta.provider}{m.meta.seconds ? ` · ${m.meta.seconds}s` : ""}</div>}
     <Markdown text={m.content} />
     {m.meta?.artifact && <ReportCard path={m.meta.artifact} />}
+    {m.meta?.routes && projectId && <div className="row">{m.meta.routes.map((r: string) =>
+      <button key={r} onClick={() => tool("audio_route", { path: m.meta.file, route: r }, { project_id: projectId, thread_id: m.thread_id })}>
+        {r === "narration" ? "Narration take" : r === "music" ? "Music" : "Sound effect"}</button>)}</div>}
     {m.meta?.choices && <div className="row">{m.meta.choices.map((c: any) => <button key={c.project_id} onClick={() => tool("narration_import", { path: m.meta.file, project_id: c.project_id })}>{c.title}</button>)}</div>}
     {m.meta?.attachments?.length ? <div className="small muted">📎 {m.meta.attachments.map((a: string) => a.split("/").pop()).join(", ")}</div> : null}
   </div>;

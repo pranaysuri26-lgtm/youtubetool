@@ -313,7 +313,7 @@ def job_audio_preview(ctx):
     pid = ctx.job["project_id"]
     a = get_asset(ws, p["asset_id"])
     an = analyze_audio_asset(ws, a["id"])
-    take = locked_take(ws, pid)
+    take = locked_take(ws, pid, p.get("deliverable_id")) if p.get("deliverable_id") else locked_take(ws, pid)
     dur = float(p.get("duration", 12))
     at = float(p.get("at", 0))
     start = max(0.0, at - 2.0)

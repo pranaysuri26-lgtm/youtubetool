@@ -31,6 +31,7 @@ _SESSION_VARS = ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_REMOTE_SES
                  "CLAUDE_CODE_MESSAGING_TOKEN")
 
 ALLOWED = ["mcp__shiftws", "Read", "Glob", "Grep"]
+WEB_THREADS = ("research", "results", "channel")
 DENIED = ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent"]
 
 
@@ -110,8 +111,12 @@ class ClaudeCodeProvider(Provider):
         if thread["project_id"]:
             from ..projects import get_project
             add_dirs.insert(0, get_project(ws, thread["project_id"])["root_dir"])
+        allowed, denied = list(ALLOWED), list(DENIED)
+        if thread["kind"] in WEB_THREADS:   # research needs public sources; findings are recorded as dated sources
+            allowed += ["WebSearch", "WebFetch"]
+            denied = [d for d in denied if d not in ("WebSearch", "WebFetch")]
         cmd = [b, "-p", text, "--output-format", "stream-json", "--verbose", "--mcp-config", cfg_path,
-               "--strict-mcp-config", "--allowedTools", *ALLOWED, "--disallowedTools", *DENIED,
+               "--strict-mcp-config", "--allowedTools", *allowed, "--disallowedTools", *denied,
                "--append-system-prompt", ctx, "--add-dir", *add_dirs]
         if ws.cfg.get("ai.claude_model"):
             cmd += ["--model", ws.cfg.get("ai.claude_model")]

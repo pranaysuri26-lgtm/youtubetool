@@ -312,3 +312,44 @@ class NarrationWatcher:
                     meta={"question": "narration_match", "file": str(f),
                           "choices": [{"project_id": p["id"], "title": p["title"]} for p in choices]})
         return {"question": str(f), "choices": [p["id"] for p in choices]}
+
+
+def script_word_timings(ws, take: dict) -> tuple[list[dict], str]:
+    """Caption words = the APPROVED SCRIPT's words (spelling, names, numbers as written), timed by the aligned ASR
+    words. Script words the recognizer missed get interpolated timings between their aligned neighbours.
+    Falls back to ASR words only when the take has no script."""
+    import re as _re
+    from .scripts_eleven import get_script
+    heard = ws.db.all("SELECT word, start, end FROM word_timings WHERE asset_id=? ORDER BY idx", (take["asset_id"],))
+    script = get_script(ws, take["script_version_id"]) if take.get("script_version_id") else None
+    if not script or not heard:
+        return [{"w": h["word"], "start": h["start"], "end": h["end"], "src": "asr"} for h in heard], "asr"
+    tokens = [t for t in _re.split(r"\s+", script["clean_text"]) if _re.search(r"[A-Za-z0-9]", t)]
+    norm = [_re.sub(r"[^a-z0-9']", "", t.lower()) for t in tokens]
+    al = align_words(norm, heard)
+    m = al["mapping"]
+    out = []
+    for i, tok in enumerate(tokens):
+        if i in m:
+            h = heard[m[i]]
+            out.append({"w": tok, "start": h["start"], "end": h["end"], "src": "aligned"})
+        else:
+            out.append({"w": tok, "start": None, "end": None, "src": "interpolated"})
+    # interpolate runs of unaligned words between known neighbours
+    i = 0
+    while i < len(out):
+        if out[i]["start"] is not None:
+            i += 1
+            continue
+        j = i
+        while j < len(out) and out[j]["start"] is None:
+            j += 1
+        left = out[i - 1]["end"] if i > 0 else (heard[0]["start"] if heard else 0.0)
+        right = out[j]["start"] if j < len(out) else (heard[-1]["end"] if heard else left + 0.3 * (j - i))
+        span = max(0.12 * (j - i), right - left)
+        step = span / (j - i)
+        for k in range(i, j):
+            out[k]["start"] = round(left + step * (k - i), 3)
+            out[k]["end"] = round(left + step * (k - i + 1), 3)
+        i = j
+    return out, "script"

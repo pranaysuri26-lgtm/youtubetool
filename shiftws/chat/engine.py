@@ -34,31 +34,46 @@ def time_window(text: str) -> tuple[float | None, float | None]:
     return None, None
 
 
-def handle_attachments(ws, thread: dict, paths: list[str], text: str = "") -> list[str]:
-    """Dropped files: narration audio for a narrated project waiting on VO → narration import; everything else →
-    media import. Returns short notes that are added to the turn so the AI knows what happened."""
+def handle_attachments(ws, thread: dict, paths: list[str], text: str = "", deliverable_id: str | None = None) -> list[str]:
+    """Dropped files are routed deterministically before the AI turn:
+    gameplay (files/folders) → analysis report linked to this chat; audio → narration take / catalog music / catalog SFX
+    by evidence (see routing.py), or ONE concise question when it is genuinely ambiguous; images → media import."""
     from .. import tools as T
     from ..probe import kind_for
+    from ..routing import classify, route_audio
     notes = []
     pid = thread["project_id"]
     if not pid:
         return ["Files dropped in the channel thread were not imported (open a project thread)."]
     scope = {"project_id": pid, "thread_id": thread["id"], "origin": "chat"}
-    waiting_vo = ws.db.one("SELECT 1 FROM tasks WHERE project_id=? AND status='open' AND title LIKE 'Generate narration%'",
-                           (pid,))
-    media = []
+    expanded = []
     for p in paths:
-        k = kind_for(p)
-        if k == "audio" and waiting_vo:
-            import re as _re
-            standin = bool(_re.search(r"stand-?in|not elevenlabs|local tts|placeholder|espeak|\bsay\b", text or "", _re.I))
-            r = T.call(ws, "narration_import", {"path": p, "synthetic_standin": standin}, scope=scope)
-            notes.append(f"Imported {Path(p).name} as narration take {r['data'].get('take_no') if r['data'] else '?'} "
-                         f"(alignment job {r['job_ids']}).")
+        q = Path(p)
+        if q.is_dir() and not any(kind_for(f) == "video" for f in q.rglob("*") if f.is_file()):
+            expanded += [str(f) for f in sorted(q.rglob("*")) if f.is_file() and kind_for(f)]   # audio/image-only folder
         else:
-            media.append(p)
-    footage = [p for p in media if Path(p).is_dir() or kind_for(p) == "video"]
-    other = [p for p in media if p not in footage]
+            expanded.append(p)
+    footage, other = [], []
+    for p in expanded:
+        k = kind_for(p)
+        if Path(p).is_dir() or k == "video":
+            footage.append(p)
+        elif k == "audio":
+            c = classify(ws, pid, p, text, deliverable_id)
+            if c["route"] == "ask":
+                add_message(ws, thread["id"], "assistant",
+                            f"Is **{Path(p).name}** ({c['duration']:.1f}s) narration, music or a sound effect? "
+                            f"({c['reason']})",
+                            meta={"question": "audio_route", "file": p,
+                                  "routes": ["narration", "music", "sfx"] if c["narrated_project"] else ["music", "sfx"]})
+                notes.append(f"Asked whether {Path(p).name} is narration, music or SFX (not imported yet).")
+                _attach_status(ws, p, "pending_question")
+                continue
+            r = route_audio(ws, pid, thread["id"], p, c["route"], standin=c["standin"], deliverable_id=deliverable_id)
+            _attach_status(ws, p, c["route"])
+            notes.append(f"{r['note']} (why: {c['reason']}).")
+        else:
+            other.append(p)
     if footage:
         from ..projects import pref
         mode = pref(ws, pid, "analysis_mode", "standard")
@@ -73,14 +88,19 @@ def handle_attachments(ws, thread: dict, paths: list[str], text: str = "") -> li
     return notes
 
 
+def _attach_status(ws, path: str, handled_as: str) -> None:
+    ws.db.x("UPDATE attachments SET handled_as=? WHERE id=(SELECT id FROM attachments WHERE path=? ORDER BY created_at "
+            "DESC LIMIT 1)", (handled_as, path))
+
+
 def send(ws, thread_id: str, text: str, *, attachments: list[str] | None = None, provider: str | None = None,
-         wait: bool = False) -> dict:
+         wait: bool = False, deliverable_id: str | None = None) -> dict:
     thread = get_thread(ws, thread_id)
     msg = add_message(ws, thread_id, "user", text, meta={"attachments": attachments or []})
     for a in attachments or []:
         ws.db.insert("attachments", {"id": new_id("att"), "message_id": msg["id"], "path": a,
                                      "handled_as": "folder" if Path(a).is_dir() else "media_import", "created_at": now()})
-    notes = handle_attachments(ws, thread, attachments, text) if attachments else []
+    notes = handle_attachments(ws, thread, attachments, text, deliverable_id) if attachments else []
     for n in notes:
         add_message(ws, thread_id, "system", n)
     turn_id = new_id("turn")

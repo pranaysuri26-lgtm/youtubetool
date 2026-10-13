@@ -38,6 +38,13 @@ class Engine:
         self.home, self.port, self.projects, self.p = Path(home), port, projects, None
 
     def start(self):
+        self.p = None
+        try:   # reuse a running app engine on this port
+            urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/ping", timeout=1)
+            self.token = (self.home / "api_token").read_text().strip()
+            return
+        except Exception:
+            pass
         env = {**os.environ, "SHIFTWS_PROJECTS_ROOT": self.projects, "PYTHONPATH": str(REPO)}
         self.p = subprocess.Popen([PY, "-m", "shiftws.cli", "--home", str(self.home), "serve", "--port", str(self.port)],
                                   cwd=REPO, env=env, stdout=subprocess.DEVNULL, stderr=open(self.home / "engine.stderr", "a"),
@@ -51,6 +58,8 @@ class Engine:
         self.token = (self.home / "api_token").read_text().strip()
 
     def stop(self):
+        if self.p is None:          # not ours (the desktop app's engine) — leave it running
+            return
         os.killpg(self.p.pid, signal.SIGTERM)
         self.p.wait(timeout=30)
 

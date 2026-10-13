@@ -126,6 +126,41 @@ def search(ws, query: str, scope: str = "all", kinds: list[str] | None = None, l
                         limit=limit))
 
 
+def skill_list(ws) -> dict:
+    """The installed yt-* skills, their runnable utilities, and which are instructions-only."""
+    from .skills import list_skills
+    return ok(list_skills())
+
+
+def skill_read(ws, skill: str) -> dict:
+    """Full SKILL.md instructions for a yt-* skill (yt-plan, yt-viral, yt-audit, yt-seo, yt-shorts, yt-comment, …)."""
+    from .skills import read_skill
+    return ok(read_skill(skill))
+
+
+def skill_run(ws, skill: str, tool: str, text: str | None = None, data: list | dict | None = None,
+              asset_id: str | None = None, extra_args: list[str] | None = None, project_id: str | None = None,
+              deliverable_id: str | None = None) -> dict:
+    """Run a skill's real utility and save the output as a versioned artifact in this chat:
+    yt-script/hookscore.py (text: hooks, one per line) · yt-package/title.py (text: title) ·
+    yt-chapters/chapters.py and yt-edit/deadair.py (asset_id → source transcript; omitted → final-timeline captions
+    of the deliverable's current plan) · yt-retention/retention.py (latest imported Studio CSV, or text: csv path) ·
+    yt-viral/swipe.py (data: [{channel,title,views,url,duration}] you collected from PUBLIC listings)."""
+    from .skills import run_and_save
+    s = _scope()
+    r = run_and_save(ws, _pid(project_id), skill, tool, text=text, data=data, asset_id=asset_id, extra_args=extra_args,
+                     thread_id=s["thread_id"], deliverable_id=deliverable_id)
+    return ok(r, artifacts=[r["path"]], warnings=[r["note"]] if r.get("note") else [])
+
+
+def research_list(ws, project_id: str | None = None) -> dict:
+    """Saved research sources for this project with their category (measured/reported/inference/opinion) and
+    observation type (public/private)."""
+    rows = ws.db.all("SELECT id, title, url, observed, notes, acquired_at FROM source_references WHERE project_id=? "
+                     "AND kind='research' ORDER BY acquired_at", (_pid(project_id),))
+    return ok(rows)
+
+
 def task_add(ws, title: str, project_id: str | None = None, kind: str = "todo", detail: str = "") -> dict:
     return ok(ws.add_task(_pid(project_id), title, kind=kind, detail=detail))
 
@@ -135,15 +170,23 @@ def task_done(ws, title_prefix: str, project_id: str | None = None) -> dict:
 
 
 def sources_register(ws, title: str, url: str = "", category: str = "reported", notes: str = "",
-                     project_id: str | None = None) -> dict:
-    """Save a research source. category: measured | reported | inference | opinion; public vs private is explicit."""
+                     published: str | None = None, visibility: str = "public", project_id: str | None = None) -> dict:
+    """Save a research source with its date. category: measured | reported | inference | opinion.
+    visibility: public (observable by anyone) | private (the user's own channel metrics). An article never substitutes
+    for visual evidence of a game mechanic."""
     from .util import new_id, now
+    if category not in ("measured", "reported", "inference", "opinion"):
+        raise ValueError("category must be measured | reported | inference | opinion")
+    if visibility not in ("public", "private"):
+        raise ValueError("visibility must be public | private")
     pid = _pid(project_id)
     sid = new_id("src")
     ws.db.insert("source_references", {"id": sid, "project_id": pid, "url": url, "title": title, "kind": "research",
-                                       "observed": category, "notes": notes, "acquired_at": now()})
-    ws.index("source", sid, title, f"{notes} {url} {category}", project_id=pid, locator={"source_id": sid, "url": url})
-    return ok({"source_id": sid})
+                                       "observed": category, "notes": notes, "acquired_at": now(),
+                                       "metadata_json": {"published": published, "visibility": visibility}})
+    ws.index("source", sid, title, f"{notes} {url} {category} {visibility}", project_id=pid,
+             thread_id=_scope()["thread_id"], locator={"source_id": sid, "url": url})
+    return ok({"source_id": sid, "category": category, "visibility": visibility, "published": published})
 
 
 # ============================================================== media
@@ -379,9 +422,12 @@ def script_save(ws, sections: list[dict], title: str = "", hooks: list[dict] | N
     return ok(r, warnings=r["warnings"], artifacts=list(r["files"].values()))
 
 
-def script_get(ws, project_id: str | None = None, script_id: str | None = None) -> dict:
+def script_get(ws, project_id: str | None = None, script_id: str | None = None,
+               deliverable_id: str | None = None) -> dict:
     from .scripts_eleven import get_script
-    return ok(get_script(ws, script_id, None if script_id else _pid(project_id)))
+    if script_id:
+        return ok(get_script(ws, script_id))
+    return ok(get_script(ws, project_id=_pid(project_id), deliverable_id=deliverable_id))
 
 
 def script_approve(ws, script_id: str) -> dict:
@@ -416,9 +462,21 @@ def narration_import(ws, path: str, project_id: str | None = None, script_id: st
               job_ids=[t["align_job"]] if t.get("align_job") else [])
 
 
-def narration_status(ws, project_id: str | None = None) -> dict:
+def audio_route(ws, path: str, route: str, standin: bool = False, project_id: str | None = None,
+                deliverable_id: str | None = None) -> dict:
+    """Route a dropped audio file: route = narration (new take → align; never auto-locks) | music | sfx (channel catalog,
+    suggestion only). Use when the workspace asked which it is, or to correct a routing."""
+    from .routing import route_audio
+    s = _scope()
+    r = route_audio(ws, _pid(project_id), s["thread_id"], path, route, standin=standin, origin=s["origin"],
+                    deliverable_id=deliverable_id)
+    return ok(r, job_ids=[r["job_id"]] if r.get("job_id") else [])
+
+
+def narration_status(ws, project_id: str | None = None, deliverable_id: str | None = None) -> dict:
     from .narration import get_take
-    rows = ws.db.all("SELECT id FROM narration_takes WHERE project_id=? ORDER BY take_no", (_pid(project_id),))
+    sql = "SELECT id FROM narration_takes WHERE project_id=?" + (" AND deliverable_id=?" if deliverable_id else "")
+    rows = ws.db.all(sql + " ORDER BY take_no", (_pid(project_id),) + ((deliverable_id,) if deliverable_id else ()))
     return ok([get_take(ws, r["id"]) for r in rows])
 
 
@@ -452,10 +510,11 @@ def audio_decide(ws, asset_id: str, status: str, purpose: str = "", note: str = 
 
 
 def audio_preview(ws, asset_id: str, at_seconds: float = 0.0, gain_db: float = -12.0, project_id: str | None = None,
-                  align_hit: bool = True, duration: float = 12.0) -> dict:
-    """Render a short preview of a music/SFX asset mixed against the locked narration (not in isolation)."""
+                  align_hit: bool = True, duration: float = 12.0, deliverable_id: str | None = None) -> dict:
+    """Render a short preview of a music/SFX asset mixed against the deliverable's locked narration (not in
+    isolation). align_hit=True places the sound's measured hit point (not its file start) at at_seconds."""
     return _job(ws, "audio_preview", {"asset_id": asset_id, "at": at_seconds, "gain_db": gain_db, "align_hit": align_hit,
-                                      "duration": duration}, _pid(project_id))
+                                      "duration": duration, "deliverable_id": deliverable_id}, _pid(project_id))
 
 
 # ============================================================== edit, premiere, review, export
@@ -472,20 +531,22 @@ def edit_plan_revise(ws, operations: list[dict], reason: str, project_id: str | 
                      deliverable_id: str | None = None) -> dict:
     """Targeted revision by stable IDs. Ops: replace_music{asset_id}, set_cue_gain{cue_id,gain_db},
     scale_sfx{delta_db}, replace_clip{clip_id,asset_id,src_start}, remove_bars{clip_id|all}, set_caption_style{...},
-    remove_cue{cue_id}, add_sfx{asset_id,at_frame,gain_db}. Only affected artifacts are invalidated."""
+    remove_cue{cue_id}, add_sfx{asset_id,at_seconds|at_frame,gain_db} (the sound's measured hit lands on that time),
+    caption_fix{cue_id,words[]} or caption_fix{find,replace}. Only affected artifacts are invalidated."""
     from .editplan import revise_plan
     return ok(revise_plan(ws, _pid(project_id), operations, reason, origin=_scope()["origin"],
                           deliverable_id=deliverable_id))
 
 
-def edit_plan_get(ws, project_id: str | None = None, version: int | None = None) -> dict:
+def edit_plan_get(ws, project_id: str | None = None, version: int | None = None,
+                  deliverable_id: str | None = None) -> dict:
     from .editplan import get_plan
-    return ok(get_plan(ws, _pid(project_id), version))
+    return ok(get_plan(ws, _pid(project_id), version, deliverable_id=deliverable_id))
 
 
-def edit_plan_validate(ws, project_id: str | None = None) -> dict:
+def edit_plan_validate(ws, project_id: str | None = None, deliverable_id: str | None = None) -> dict:
     from .editplan import get_plan, validate
-    p = get_plan(ws, _pid(project_id))
+    p = get_plan(ws, _pid(project_id), deliverable_id=deliverable_id)
     return ok(validate(ws, p["plan"]))
 
 
@@ -497,31 +558,34 @@ def preview_render(ws, project_id: str | None = None, deliverable_id: str | None
     return _job(ws, "render_preview", {"plan_id": p["id"]}, pid)
 
 
-def qc_run(ws, export_id: str | None = None, project_id: str | None = None) -> dict:
+def qc_run(ws, export_id: str | None = None, project_id: str | None = None, deliverable_id: str | None = None) -> dict:
     """Independent QC of a rendered file: loudness, true peak, silence, black frames, bars, duration, captions,
     narration-unchanged check. Flags are candidates for review, not proof of mistakes."""
     pid = _pid(project_id)
     if not export_id:
-        r = ws.db.one("SELECT id FROM exports WHERE project_id=? ORDER BY created_at DESC LIMIT 1", (pid,))
+        r = ws.db.one("SELECT id FROM exports WHERE project_id=? AND (? IS NULL OR deliverable_id=?) "
+                      "ORDER BY created_at DESC LIMIT 1", (pid, deliverable_id, deliverable_id))
         if not r:
             return ok(None, status="error", warnings=["nothing rendered yet — run preview_render first"])
         export_id = r["id"]
     return _job(ws, "qc", {"export_id": export_id}, pid)
 
 
-def export_run(ws, project_id: str | None = None, kind: str = "youtube") -> dict:
-    """Render the final deliverable from the current plan (FFmpeg path) and inspect the actual file."""
+def export_run(ws, project_id: str | None = None, kind: str = "youtube", deliverable_id: str | None = None) -> dict:
+    """Render the final deliverable from its current plan (FFmpeg path); QC then inspects the actual file."""
     from .editplan import get_plan
     pid = _pid(project_id)
-    p = get_plan(ws, pid)
+    p = get_plan(ws, pid, deliverable_id=deliverable_id)
     return _job(ws, "render_preview", {"plan_id": p["id"], "kind": kind}, pid)
 
 
 def upload_package_create(ws, project_id: str | None = None, title: str | None = None,
-                          description: str | None = None, tags: list[str] | None = None) -> dict:
-    """Assemble the upload package: video, captions, chapters (from final timing), title/description/tags,
-    credits block from license records, thumbnail brief, checklist. Does not publish."""
-    return _job(ws, "upload_package", {"title": title, "description": description, "tags": tags}, _pid(project_id),
+                          description: str | None = None, tags: list[str] | None = None,
+                          deliverable_id: str | None = None, export_id: str | None = None) -> dict:
+    """Assemble the upload package for one deliverable: video, captions, chapters (from final timing),
+    title/description/tags, credits block from license records, thumbnail brief, checklist. Does not publish."""
+    return _job(ws, "upload_package", {"title": title, "description": description, "tags": tags,
+                                       "deliverable_id": deliverable_id, "export_id": export_id}, _pid(project_id),
                 force=True)
 
 
@@ -537,16 +601,29 @@ def premiere_status(ws) -> dict:
     return ok(status(ws))
 
 
-def premiere_apply_plan(ws, project_id: str | None = None, dry_run: bool = True) -> dict:
-    """Apply the current edit plan to a NEW sequence in Premiere (saves first, one writer, verified readback).
-    dry_run=True returns the normalized operations without touching Premiere."""
+def premiere_apply_plan(ws, project_id: str | None = None, dry_run: bool = True,
+                        deliverable_id: str | None = None) -> dict:
+    """Apply a deliverable's current edit plan to a NEW sequence in Premiere (saves first, one writer, verified
+    readback). dry_run=True returns the normalized operations without touching Premiere."""
     from .editplan import get_plan
     pid = _pid(project_id)
-    p = get_plan(ws, pid)
+    p = get_plan(ws, pid, deliverable_id=deliverable_id)
     if dry_run:
         from .premiere.adapter import plan_operations
         return ok(plan_operations(ws, p))
     return _job(ws, "premiere_apply", {"plan_id": p["id"]}, pid, force=True)
+
+
+def premiere_export(ws, sequence_id: str, preset_path: str | None = None, preset_name: str | None = None,
+                    output_path: str | None = None, project_id: str | None = None,
+                    deliverable_id: str | None = None) -> dict:
+    """Export a verified Premiere sequence with an .epr preset, then inspect the actual file and run QC on it.
+    Never overwrites an existing file."""
+    from .editplan import get_plan
+    pid = _pid(project_id)
+    p = get_plan(ws, pid, deliverable_id=deliverable_id)
+    return _job(ws, "premiere_export", {"plan_id": p["id"], "sequence_id": sequence_id, "preset_path": preset_path,
+                                        "preset_name": preset_name, "output_path": output_path}, pid, force=True)
 
 
 # ============================================================== jobs
@@ -582,15 +659,15 @@ def automation_report(ws, project_id: str | None = None) -> dict:
 
 
 TOOLS = [project_create, project_list, project_context, project_update_brief, project_set_preferences,
-         memory_save, memory_list, memory_correct, memory_forget, search, task_add, task_done, sources_register,
+         memory_save, memory_list, memory_correct, memory_forget, search, skill_list, skill_read, skill_run, research_list, task_add, task_done, sources_register,
          assets_import, assets_download, assets_list, video_analyze, scene_frames, scene_describe, footage_find,
          script_save, script_get, script_approve, script_score_hooks, narration_tag_feedback, narration_import,
-         narration_status, narration_lock, audio_index_library, audio_find, audio_decide, audio_preview,
+         audio_route, narration_status, narration_lock, audio_index_library, audio_find, audio_decide, audio_preview,
          analysis_report, report_sections, report_refresh, dense_pass, coverage_status, coverage_mark, skipped_cuts,
          investigation_record, deliverable_create, deliverable_list, commitment_record, commitments_check,
          lessons_find, lesson_save, correction_record, catalog_add_folder, notifications_list, comments_triage_input,
          premiere_inspect, edit_plan_create, edit_plan_revise, edit_plan_get, edit_plan_validate, preview_render, qc_run, export_run,
-         upload_package_create, analytics_import, premiere_status, premiere_apply_plan, job_status, job_wait,
+         upload_package_create, analytics_import, premiere_status, premiere_apply_plan, premiere_export, job_status, job_wait,
          job_cancel, job_resume, jobs_list, automation_report]
 
 BY_NAME = {f.__name__: f for f in TOOLS}

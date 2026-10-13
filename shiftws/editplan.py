@@ -206,7 +206,9 @@ def _captions(ws, take, seq_rate, prefs) -> dict:
     style = dict(prefs.get("captions") or {})
     if style.get("style") in (None, "none"):
         return {"style": style, "cues": []}
-    words = ws.db.all("SELECT word, start, end FROM word_timings WHERE asset_id=? ORDER BY idx", (take["asset_id"],))
+    from .narration import script_word_timings
+    words, source = script_word_timings(ws, take)
+    words = [{"word": w["w"], "start": w["start"], "end": w["end"], "src": w["src"]} for w in words]
     group = int(style.get("max_words_on_screen", 3)) if style.get("style") == "kinetic_word" else 7
     cues, cur = [], []
     for i, w in enumerate(words):
@@ -217,9 +219,13 @@ def _captions(ws, take, seq_rate, prefs) -> dict:
             cues.append({"id": f"cap{len(cues) + 1:03d}", "start": seq_rate.seconds_to_frames(cur[0]["start"]),
                          "end": seq_rate.seconds_to_frames(cur[-1]["end"]),
                          "words": [{"w": x["word"], "start": seq_rate.seconds_to_frames(x["start"]),
-                                    "end": seq_rate.seconds_to_frames(x["end"])} for x in cur]})
+                                    "end": seq_rate.seconds_to_frames(x["end"]), "timing": x["src"]} for x in cur]})
             cur = []
-    return {"style": style, "source": f"narration take {take['take_no']} word timings", "cues": cues}
+    interp = sum(1 for w in words if w["src"] == "interpolated")
+    return {"style": style, "cues": cues,
+            "source": (f"approved script words timed by narration take {take['take_no']}"
+                       + (f" ({interp} word(s) interpolated — check them)" if interp else "")) if source == "script"
+            else f"narration take {take['take_no']} ASR words (no script linked)"}
 
 
 def _selected_sfx(ws, project_id) -> list[dict]:
@@ -451,6 +457,26 @@ def revise_plan(ws, project_id: str, operations: list[dict], reason: str, origin
             for c in plan["clips"]:
                 if op.get("clip_id") in (None, "all", c["id"]) and c["transform"]["mode"] != "fill":
                     c["transform"]["mode"] = "fill"; changed.append(c["id"])
+        elif kind == "caption_fix":
+            # correct caption words without changing timing: {cue_id, words:[...]} (same count) or {find, replace}
+            for c in plan["captions"]["cues"]:
+                if op.get("cue_id") in (None, c["id"]):
+                    if op.get("words") and op.get("cue_id") == c["id"]:
+                        if len(op["words"]) != len(c["words"]):
+                            raise ValueError(f"{c['id']} has {len(c['words'])} words; give the same number")
+                        for w, new_w in zip(c["words"], op["words"]):
+                            w["w"] = new_w
+                        changed.append(c["id"])
+                    elif op.get("find"):
+                        hit = False
+                        for w in c["words"]:
+                            if w["w"].strip(".,!?").lower() == op["find"].lower():
+                                w["w"] = w["w"].replace(w["w"].strip(".,!?"), op["replace"])
+                                hit = True
+                        if hit:
+                            changed.append(c["id"])
+            if any(x.startswith("cap") for x in changed):
+                changed.append("captions.text")
         elif kind == "set_caption_style":
             plan["captions"]["style"].update({k: v for k, v in op.items() if k != "op"})
             changed.append("captions.style")
@@ -478,7 +504,7 @@ def affected_stages(changed: list[str]) -> list[str]:
             out |= {"picture", "mix"}            # clip source audio is in the mix too
         elif c.startswith(("mus", "sfx")):
             out.add("mix")
-        elif c.startswith("captions"):
+        elif c.startswith(("captions", "cap")):
             out.add("picture")
     return sorted(out)
 

@@ -120,11 +120,14 @@ def job_apply(ctx):
     _mark(ws, oid, "verified", cli.call("save_project", {}))
     ws.remember(kind="fact", subject=f"Premiere sequence for plan v{row['version']}",
                 content=f"Sequence '{name}' ({seq_id}); readback {'matches' if rb['matches'] else 'differs'}: {rb['summary']}",
-                project_id=pid, ref_type="sequence", ref_id=seq_id, data=rb, provenance="premiere")
+                project_id=pid, ref_type="sequence", ref_id=seq_id,
+                data={**rb, "deliverable_id": row["deliverable_id"], "plan_id": row["id"], "sequence_name": name},
+                provenance="premiere")
     ws.automation(pid, "premiere_assembly", "automated")
     if not rb["matches"]:
         raise JobFailed("sequence differs from the plan after import", hint=rb["summary"])
-    return {"sequence_id": seq_id, "sequence_name": name, "readback": rb, "summary": f"Premiere: '{name}' verified"}
+    return {"sequence_id": seq_id, "sequence_name": name, "readback": rb, "deliverable_id": row["deliverable_id"],
+            "plan_id": row["id"], "summary": f"Premiere: '{name}' verified"}
 
 
 def reconcile(plan: dict, tracks_data) -> dict:
@@ -175,3 +178,64 @@ def job_inspect(ctx):
     return {"tracks": tracks, "offline": offline, "diagnosis": diag or ["no structural problem found; render and measure "
                                                                         "the affected interval next"],
             "summary": "; ".join(diag) or "inspection clean (verify by render)"}
+
+
+@handler("premiere_export", lane="premiere")
+def job_export(ctx):
+    """Export a verified sequence through Premiere/Media Encoder, then inspect the ACTUAL file (never trust the tool's
+    answer alone): wait until the file stops growing, probe it, register it as an export of the right deliverable and
+    plan version, and run the same independent QC as FFmpeg renders."""
+    import time as _t
+    from ..probe import summarize
+    from ..util import sha256_file
+    ws, p = ctx.ws, ctx.params
+    row = ws.db.one("SELECT * FROM edit_plan_versions WHERE id=?", (p["plan_id"],))
+    pid = row["project_id"]
+    cmd = bridge_command(ws)
+    if not cmd:
+        raise JobFailed("Premiere bridge not installed", hint="Only Premiere jobs are blocked.")
+    cli = BridgeClient(cmd, timeout=float(ws.cfg.get("premiere.timeout", 90)))
+    from ..projects import get_project
+    out = Path(p.get("output_path") or (Path(get_project(ws, pid)["root_dir"]) / "exports" /
+                                         f"premiere_plan_v{row['version']:02d}_{row['id'][-6:]}.mp4"))
+    if out.exists():
+        raise JobFailed(f"{out.name} already exists", hint="Exports are never overwritten; pass another output_path.")
+    args = {"sequenceId": p["sequence_id"], "outputPath": str(out), "allowOverwrite": False}
+    if p.get("preset_path"):
+        args["presetPath"] = p["preset_path"]
+    elif p.get("preset_name"):
+        args["presetName"] = p["preset_name"]
+    else:
+        raise JobFailed("an export preset is required", hint="Pass preset_path (.epr) or preset_name (see get_encoder_presets).")
+    oid = _op(ws, pid, row["id"], "export", args, seq=p["sequence_id"])
+    ctx.progress(0.1, "asking Premiere / Media Encoder to export", stage="export")
+    try:
+        r = cli.call("export_sequence", args)
+    except TimeoutError:
+        r = {"is_error": False, "data": "timeout — checking the file instead"}
+    # completion = the file exists and its size is stable for 3 polls (Media Encoder may still be writing)
+    last, stable = -1, 0
+    deadline = _t.time() + float(p.get("timeout_s", 3600))
+    while _t.time() < deadline and stable < 3:
+        size = out.stat().st_size if out.exists() else -1
+        stable = stable + 1 if size > 0 and size == last else 0
+        last = size
+        ctx.progress(0.2 + 0.6 * min(1.0, stable / 3), f"waiting for {out.name} ({max(size, 0) / 1e6:.1f} MB)")
+        _t.sleep(2)
+    if not out.exists() or stable < 3:
+        _mark(ws, oid, "failed", {"bridge": r, "file": str(out), "exists": out.exists()})
+        raise JobFailed("Premiere reported an export but no complete file appeared", hint=json.dumps(r.get("data"))[:300])
+    info = summarize(out)
+    _mark(ws, oid, "verified", {"bridge": r, "probe": info})
+    eid = new_id("exp")
+    ws.db.insert("exports", {"id": eid, "project_id": pid, "plan_version_id": row["id"], "deliverable_id": row["deliverable_id"],
+                             "kind": "premiere_export", "path": str(out), "sha256": sha256_file(out), "probe_json": info,
+                             "status": "rendered", "created_at": now()})
+    from ..jobs import enqueue
+    qc = enqueue(ws, "qc", {"export_id": eid}, project_id=pid, thread_id=ctx.job["thread_id"], origin="system")
+    ws.automation(pid, "premiere_export", "automated")
+    return {"export_id": eid, "path": str(out), "probe": {k: info.get(k) for k in ("duration", "width", "height", "fps_num",
+                                                                                    "fps_den", "vcodec", "acodec")},
+            "qc_job": qc["id"], "deliverable_id": row["deliverable_id"],
+            "summary": f"Premiere export {out.name}: {info['width']}x{info['height']} {info['duration']:.2f}s — QC started",
+            "_outputs": [str(out)]}

@@ -66,6 +66,16 @@ def invoke_tool(name: str, arguments: dict | None = None) -> str:
         if os.environ.get("STUB_SLOW_IMPORT") and s["imports"] == 1:
             time.sleep(float(os.environ["STUB_SLOW_IMPORT"]))   # succeeds, but answers late
         return json.dumps({"imported": True})
+    if name == "export_sequence":
+        # mimic Media Encoder: the file appears a moment after the call returns
+        import shutil, threading
+        src = os.environ.get("STUB_EXPORT_SOURCE")
+        def write():
+            time.sleep(1.5)
+            shutil.copy(src, a["outputPath"])
+        threading.Thread(target=write).start()
+        time.sleep(2.0)
+        return json.dumps({"queued": True, "outputPath": a["outputPath"]})
     if name == "list_sequence_tracks":
         seq = next(x for x in s["sequences"] if x["id"] == a["sequenceId"])
         return json.dumps({"videoTracks": seq["videoTracks"], "audioTracks": seq["audioTracks"]})
