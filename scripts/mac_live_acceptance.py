@@ -50,6 +50,8 @@ def main():
     ap.add_argument("--narration")
     ap.add_argument("--home", default=None, help="workspace home (default: the app's normal data folder)")
     ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--no-confirm-lock", dest="confirm_lock", action="store_false",
+                    help="stop instead of confirming the narration lock when the assistant asks you to listen first")
     a = ap.parse_args()
     from shiftws.config import load_config
     cfg = load_config(a.home)
@@ -114,6 +116,16 @@ def main():
     wait_jobs(eng, pid)
     takes = eng.api("/api/tools/narration_status", {"_scope": {"project_id": pid}})["data"]
     locked = [t for t in takes if t["status"] == "locked"]
+    if takes and not locked and a.confirm_lock:
+        # The assistant asks before an irreversible lock when alignment has mismatches (correct behavior).
+        # Unattended runs answer as the user would after listening; recorded as an explicit user decision.
+        log("\n_(script) explicit user decision sent: lock the take_")
+        RESULTS.append({"step": "user decision: confirm narration lock after the assistant asked", "status": "decision",
+                        "evidence": {"take": takes[-1]["id"]}})
+        turn(eng, th, "I listened — it's fine. Lock it and continue.")
+        wait_jobs(eng, pid)
+        takes = eng.api("/api/tools/narration_status", {"_scope": {"project_id": pid}})["data"]
+        locked = [t for t in takes if t["status"] == "locked"]
     step("narration imported, aligned, locked", bool(locked),
          {"takes": [(t["take_no"], t["status"], t["is_synthetic_standin"]) for t in takes],
           "match": locked[0]["alignment"].get("match_ratio") if locked else None})
